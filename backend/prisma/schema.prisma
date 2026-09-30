@@ -1,0 +1,338 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum Role {
+  ADMIN
+  ASSESSOR
+  SANITIZATION_OFFICER
+  DISPOSITION_OFFICER
+  VIEWER
+}
+
+enum DeviceType {
+  LAPTOP
+  DESKTOP
+  TABLET
+  OTHER
+}
+
+enum StorageType {
+  HDD
+  SSD
+  NVME
+  EMMC
+  NONE
+  OTHER
+}
+
+enum DeviceStatus {
+  RECEIVED
+  UNDER_ASSESSMENT
+  ASSESSMENT_COMPLETE
+  AWAITING_SANITIZATION
+  SANITIZATION_IN_PROGRESS
+  SANITIZED
+  AWAITING_DISPOSITION
+  DISPOSITION_IN_PROGRESS
+  DISPOSED
+  REDEPLOYED
+  RECYCLED
+  SCRAPPED
+  ON_HOLD
+}
+
+enum ConditionGrade {
+  EXCELLENT
+  GOOD
+  FAIR
+  POOR
+  DAMAGED
+  MISSING
+  FAILED
+  NOT_TESTED
+}
+
+enum Recommendation {
+  REDEPLOY
+  REPAIR
+  REASSIGN
+  SANITIZE_AND_REDEPLOY
+  DONATE
+  RESELL
+  RECYCLE
+  SCRAP
+  HOLD
+}
+
+enum SanitizationMethod {
+  NIST_800_88_CLEAR
+  NIST_800_88_PURGE
+  CRYPTO_ERASE
+  SECURE_ERASE
+  PHYSICAL_DESTRUCTION
+  OTHER
+}
+
+enum VerificationResult {
+  PENDING
+  PASSED
+  FAILED
+}
+
+enum SanitizationStatus {
+  PENDING
+  IN_PROGRESS
+  PASSED
+  FAILED
+}
+
+enum DispositionType {
+  REDEPLOYED
+  DONATED
+  SOLD
+  RECYCLED
+  SCRAPPED
+  RETURNED
+  DESTROYED
+}
+
+enum DispositionStatus {
+  DRAFT
+  APPROVED
+  IN_PROGRESS
+  COMPLETED
+  REJECTED
+}
+
+enum AuditAction {
+  DEVICE_CREATED
+  DEVICE_UPDATED
+  DEVICE_SOFT_DELETED
+  ASSESSMENT_CREATED
+  ASSESSMENT_UPDATED
+  SANITIZATION_APPROVED
+  SANITIZATION_STARTED
+  SANITIZATION_COMPLETED
+  SANITIZATION_VERIFIED
+  DISPOSITION_CREATED
+  DISPOSITION_APPROVED
+  DISPOSITION_REJECTED
+  DISPOSITION_COMPLETED
+  USER_CREATED
+  USER_UPDATED
+  USER_DISABLED
+  LOGIN_SUCCESS
+  LOGIN_FAILED
+  LOGOUT
+  PASSWORD_CHANGED
+  DOCUMENT_UPLOADED
+}
+
+enum EntityType {
+  DEVICE
+  ASSESSMENT
+  SANITIZATION
+  DISPOSITION
+  USER
+  DOCUMENT
+  AUTH
+}
+
+model User {
+  id           String    @id @default(cuid())
+  email        String    @unique
+  name         String
+  passwordHash String
+  role         Role
+  disabledAt   DateTime?
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+
+  refreshTokens          RefreshToken[]
+  assessments            Assessment[]
+  sanitizationsPerformed SanitizationRecord[] @relation("SanitizationPerformer")
+  sanitizationsVerified  SanitizationRecord[] @relation("SanitizationVerifier")
+  dispositionsApproved   Disposition[]        @relation("DispositionApprover")
+  dispositionsCompleted  Disposition[]        @relation("DispositionCompleter")
+  documents              Document[]
+  auditLogs              AuditLog[]
+}
+
+model RefreshToken {
+  id        String    @id @default(cuid())
+  userId    String
+  tokenHash String    @unique
+  expiresAt DateTime
+  revokedAt DateTime?
+  createdAt DateTime  @default(now())
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+}
+
+model Device {
+  id               String          @id @default(cuid())
+  assetTag         String          @unique
+  serialNumber     String          @unique
+  manufacturer     String
+  model            String
+  deviceType       DeviceType
+  processor        String?
+  ram              String?
+  storage          String?
+  storageType      StorageType?
+  operatingSystem  String?
+  purchaseDate     DateTime?
+  purchasePrice    Decimal?        @db.Decimal(12, 2)
+  currentCondition ConditionGrade?
+  location         String
+  department       String
+  assignedUser     String?
+  status           DeviceStatus    @default(RECEIVED)
+  deletedAt        DateTime?
+  createdAt        DateTime        @default(now())
+  updatedAt        DateTime        @updatedAt
+
+  assessments   Assessment[]
+  sanitizations SanitizationRecord[]
+  dispositions  Disposition[]
+
+  @@index([status])
+  @@index([department])
+  @@index([location])
+  @@index([manufacturer])
+  @@index([deletedAt])
+}
+
+model Assessment {
+  id                       String         @id @default(cuid())
+  deviceId                 String
+  assessorId               String
+  assessmentDate           DateTime
+  physicalCondition        ConditionGrade
+  screenCondition          ConditionGrade
+  keyboardCondition        ConditionGrade
+  batteryCondition         ConditionGrade
+  chargerCondition         ConditionGrade
+  portsCondition           ConditionGrade
+  storageHealth            ConditionGrade
+  memoryHealth             ConditionGrade
+  displayHealth            ConditionGrade
+  operatingSystemCondition ConditionGrade
+  functionalTest           Boolean
+  hardwareTest             Boolean
+  batteryTest              Boolean
+  networkTest              Boolean
+  estimatedRepairCost      Decimal?       @db.Decimal(12, 2)
+  estimatedMarketValue     Decimal?       @db.Decimal(12, 2)
+  assessmentNotes          String
+  recommendation           Recommendation
+  sanitizationRequired     Boolean
+  completedAt              DateTime?
+  createdAt                DateTime       @default(now())
+  updatedAt                DateTime       @updatedAt
+
+  device   Device @relation(fields: [deviceId], references: [id])
+  assessor User   @relation(fields: [assessorId], references: [id])
+
+  @@index([deviceId])
+  @@index([assessorId])
+}
+
+model SanitizationRecord {
+  id                 String             @id @default(cuid())
+  deviceId           String
+  performedById      String
+  verifiedById       String?
+  sanitizationDate   DateTime?
+  method             SanitizationMethod
+  software           String
+  softwareVersion    String
+  driveType          String
+  driveIdentifier    String
+  verificationMethod String?
+  verificationResult VerificationResult @default(PENDING)
+  status             SanitizationStatus @default(IN_PROGRESS)
+  notes              String?
+  certificateNumber  String?            @unique
+  certificateFile    String?
+  createdAt          DateTime           @default(now())
+  updatedAt          DateTime           @updatedAt
+
+  device      Device @relation(fields: [deviceId], references: [id])
+  performedBy User   @relation("SanitizationPerformer", fields: [performedById], references: [id])
+  verifiedBy  User?  @relation("SanitizationVerifier", fields: [verifiedById], references: [id])
+
+  @@index([deviceId])
+  @@index([status])
+}
+
+model Disposition {
+  id                    String            @id @default(cuid())
+  deviceId              String
+  dispositionType       DispositionType
+  status                DispositionStatus @default(DRAFT)
+  approvedById          String?
+  completedById         String?
+  recipientName         String?
+  recipientOrganization String?
+  recipientContact      String?
+  salePrice             Decimal?          @db.Decimal(12, 2)
+  currency              String?           @default("KES")
+  dispositionDate       DateTime?
+  referenceNumber       String?           @unique
+  notes                 String?
+  supportingDocument    String?
+  createdAt             DateTime          @default(now())
+  updatedAt             DateTime          @updatedAt
+
+  device      Device @relation(fields: [deviceId], references: [id])
+  approvedBy  User?  @relation("DispositionApprover", fields: [approvedById], references: [id])
+  completedBy User?  @relation("DispositionCompleter", fields: [completedById], references: [id])
+
+  @@index([deviceId])
+  @@index([status])
+}
+
+model Document {
+  id           String     @id @default(cuid())
+  entityType   EntityType
+  entityId     String
+  fileName     String
+  fileType     String
+  fileSize     Int
+  storagePath  String
+  uploadedById String
+  createdAt    DateTime   @default(now())
+
+  uploadedBy User @relation(fields: [uploadedById], references: [id])
+
+  @@index([entityType, entityId])
+  @@index([uploadedById])
+}
+
+model AuditLog {
+  id         String      @id @default(cuid())
+  userId     String?
+  action     AuditAction
+  entityType EntityType
+  entityId   String
+  oldValue   Json?
+  newValue   Json?
+  ipAddress  String?
+  userAgent  String?
+  timestamp  DateTime    @default(now())
+
+  user User? @relation(fields: [userId], references: [id])
+
+  @@index([userId])
+  @@index([entityId])
+  @@index([timestamp])
+  @@index([action])
+}

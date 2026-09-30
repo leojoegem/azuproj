@@ -1,0 +1,14 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: reset
+      POSTGRES_PASSWORD: reset
+      POSTGRES_DB: reset
+    ports:
+      - '5432:5432'
+    volumes:
+      - reset_pg:/var/lib/postgresql/data
+
+volumes:
+  reset_pg:
